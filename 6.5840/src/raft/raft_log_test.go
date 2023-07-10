@@ -1,6 +1,7 @@
 package raft
 
 import (
+	"fmt"
 	"testing"
 )
 
@@ -194,13 +195,67 @@ func TestRaftInsert(t *testing.T) {
 	if err != nil {
 		t.Fatalf("raftLogs.get(1, [%v]) want {any, any, any, [nil]} ; equal {any, any, any, [%v]}", len(bufferTerm), err)
 	}
+
+	bufferTerm = bufferTerm[:len(insertLogs)]
 	for key, value := range getLogs {
 		if value.Term != bufferTerm[key] {
 			t.Fatalf("[%v] want equal [%v]", getLogs, bufferTerm)
 		}
 	}
+	fmt.Printf("%v", getLogs)
 
 }
+
+func TestInsertTrunc(t *testing.T) {
+	var rl raftLogs
+	err := rl.init(100, nil)
+	if err != nil {
+		t.Fatalf("raftLogs.init(100) want nil, equal [%v]", err)
+	}
+	bufferTerm := []int{1, 1, 2, 2, 2, 3, 3, 3}
+	for _, value := range bufferTerm {
+		rl.append(OneRaftLog{Term: value})
+	}
+	insertTerm := []int{4, 4}
+	insertLogs := []OneRaftLog{}
+	for _, value := range insertTerm {
+		insertLogs = append(insertLogs, OneRaftLog{Term: value})
+	}
+	rl.insert(2, 3, insertLogs)
+	_, getLogs, _, err := rl.get(1, len(bufferTerm))
+	if err != nil {
+		t.Fatalf("raftLogs.get(1, [%v]) want {any, any, any, [nil]} ; equal {any, any, any, [%v]}", len(bufferTerm), err)
+	}
+	resultTerm := []int{1, 1, 2, 4, 4}
+	if len(resultTerm) != len(getLogs) {
+		t.Fatalf("[%v] want equal [%v]", len(resultTerm), len(getLogs))
+	}
+	for key, value := range getLogs {
+		if value.Term != resultTerm[key] {
+			t.Fatalf("[%v] want equal [%v]", getLogs, bufferTerm)
+		}
+	}
+	insertTerm = []int{2, 4}
+	insertLogs = []OneRaftLog{}
+	for _, value := range insertTerm {
+		insertLogs = append(insertLogs, OneRaftLog{Term: value})
+	}
+	rl.insert(1, 2, insertLogs)
+	_, getLogs, _, err = rl.get(1, len(bufferTerm))
+	if err != nil {
+		t.Fatalf("raftLogs.get(1, [%v]) want {any, any, any, [nil]} ; equal {any, any, any, [%v]}", len(bufferTerm), err)
+	}
+	if len(resultTerm) != len(getLogs) {
+		t.Fatalf("[%v] want equal [%v]", resultTerm, getLogs)
+	}
+	for key, value := range getLogs {
+		if value.Term != resultTerm[key] {
+			t.Fatalf("[%v] want equal [%v]", getLogs, bufferTerm)
+		}
+	}
+
+}
+
 func TestRaftCommit(t *testing.T) {
 	var rl raftLogs
 	bufferTerm := []int{1, 1, 2, 2, 2, 3, 3, 3}
@@ -217,23 +272,23 @@ func TestRaftCommit(t *testing.T) {
 		t.Fatalf("rl.getCommitIndex() want 0, equal [%v]", rl.getCommitIndex())
 	}
 
-	err = rl.commit(3)
+	err = rl.commit(3, 3)
 	if err != nil {
-		t.Fatalf("raftLogs.commit(3) want nil, equal [%v]", err)
+		t.Fatalf("raftLogs.commit(3, 3) want nil, equal [%v]", err)
 	}
 	if rl.getCommitIndex() != 3 {
 		t.Fatalf("rl.getCommitIndex() want 3, equal [%v]", rl.getCommitIndex())
 	}
-	err = rl.commit(2)
+	err = rl.commit(2, 2)
 	if err != nil {
-		t.Fatalf("raftLogs.commit(2) want nil, equal [%v]", err)
+		t.Fatalf("raftLogs.commit(2, 2) want nil, equal [%v]", err)
 	}
 	if rl.getCommitIndex() != 3 {
 		t.Fatalf("rl.getCommitIndex() want 3, equal [%v]", rl.getCommitIndex())
 	}
-	err = rl.commit(4)
+	err = rl.commit(4, 4)
 	if err != nil {
-		t.Fatalf("raftLogs.commit(4) want nil, equal [%v]", err)
+		t.Fatalf("raftLogs.commit(4, 4) want nil, equal [%v]", err)
 	}
 	if rl.getCommitIndex() != 4 {
 		t.Fatalf("rl.getCommitIndex() want 4, equal [%v]", rl.getCommitIndex())
@@ -244,12 +299,48 @@ func TestRaftCommit(t *testing.T) {
 			t.Fatalf("applyMsg.CommandIndex[%v] want equal [%v]", applyMsg.CommandIndex, i)
 		}
 	}
-	err = rl.commit(len(bufferTerm) + 1)
+	err = rl.commit(4, 5)
+	if err != nil {
+		t.Fatalf("raftLogs.commit(4, 5) want nil, equal [%v]", err)
+	}
+	if rl.getCommitIndex() != 4 {
+		t.Fatalf("rl.getCommitIndex() want 4, equal [%v]", rl.getCommitIndex())
+	}
+
+	err = rl.commit(6, 5)
+	if err != nil {
+		t.Fatalf("raftLogs.commit(6, 5) want nil, equal [%v]", err)
+	}
+	if rl.getCommitIndex() != 5 {
+		t.Fatalf("rl.getCommitIndex() want 5, equal [%v]", rl.getCommitIndex())
+	}
+
+	err = rl.commit(len(bufferTerm)+1, len(bufferTerm))
 	if err != nil {
 		t.Fatalf("raftLogs.commit( > maxIndex) want not nil, equal nil")
 	}
 	if rl.getCommitIndex() != len(bufferTerm) {
 		t.Fatalf("rl.getCommitIndex() want %v, equal [%v]", len(bufferTerm), rl.getCommitIndex())
 	}
+}
 
+func TestInsertAndCommit(t *testing.T) {
+	var rl raftLogs
+	applyChan := make(chan ApplyMsg, 1)
+	err := rl.init(100, applyChan)
+	if err != nil {
+		t.Fatalf("raftLogs.init(100) want nil, equal [%v]", err)
+	}
+	rl.insert(0, 0, []OneRaftLog{OneRaftLog{1, 1}})
+	err = rl.commit(1, 1)
+	if err != nil {
+		t.Fatalf("rl.commit(1) want nil, equal [%v]", err)
+	}
+	if len(applyChan) != 1 {
+		t.Fatalf("len(applyChan) want 1, equal [%v]", len(applyChan))
+	}
+	cmd := <-applyChan
+	if cmd.CommandIndex != 1 || cmd.Command != 1 {
+		t.Fatalf("cmd.CommandIndex = %v cmd.Command = %v, want equal [1] [1]", cmd.CommandIndex, cmd.Command)
+	}
 }

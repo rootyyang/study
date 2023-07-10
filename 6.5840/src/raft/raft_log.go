@@ -20,10 +20,6 @@ type OneRaftLog struct {
 	Term    int
 	Command interface{}
 }
-type RaftLogWithIndex struct {
-	OneRaftLog
-	Index int
-}
 
 type raftLogs struct {
 	buffers []OneRaftLog
@@ -43,6 +39,7 @@ func (lc *raftLogs) init(pBufferLen uint32, pApplyCh chan ApplyMsg) error {
 	return nil
 }
 func (lc *raftLogs) append(pOneLog OneRaftLog) (rMsgIndex int, rPrevIndex int, rPrevTerm int, rErr error) {
+
 	rPrevIndex = len(lc.buffers) - 1
 	rPrevTerm = int(lc.buffers[rPrevIndex].Term)
 	lc.buffers = append(lc.buffers, pOneLog)
@@ -51,22 +48,28 @@ func (lc *raftLogs) append(pOneLog OneRaftLog) (rMsgIndex int, rPrevIndex int, r
 }
 
 func (lc *raftLogs) insert(pPrevTerm int, pPrevIndex int, logs []OneRaftLog) {
+	trunck := false
 	beginCopyPos := pPrevIndex + 1
 	for _, value := range logs {
 		if beginCopyPos < len(lc.buffers) {
 			//覆盖
-			lc.buffers[beginCopyPos] = value
+			if lc.buffers[beginCopyPos].Term != value.Term {
+				lc.buffers[beginCopyPos] = value
+				trunck = true
+			}
 		} else {
 			lc.buffers = append(lc.buffers, value)
 		}
 		beginCopyPos++
 	}
-	return
+	if trunck {
+		lc.buffers = lc.buffers[:beginCopyPos]
+	}
 }
 
 func (lc *raftLogs) check(pPrevTerm int, pPrevIndex int) error {
-	if pPrevIndex >= len(lc.buffers) {
-		return ErrIndexGreaterThanMax
+	if pPrevIndex >= len(lc.buffers) || pPrevIndex < 0 {
+		return ErrParamError
 	}
 
 	if lc.buffers[pPrevIndex].Term != pPrevTerm {
@@ -114,26 +117,29 @@ func (lc *raftLogs) getCommitIndex() int {
 // 如果该index是本term的第一个，则下一次尝试上一个term的第一个，否则尝试本term的第一个
 func (lc *raftLogs) getNextTryWhenAppendEntiresFalse(pIndex int) (rNextTryIndex int, rErr error) {
 	//前一个index的Term
-	if pIndex >= len(lc.buffers) || pIndex <= 0 {
+	if pIndex >= len(lc.buffers) || pIndex < 0 {
 		rErr = ErrParamError
 		return
 	}
 	beforeIndex := pIndex - 1
 	findFirstTerm := lc.buffers[beforeIndex].Term
 	rNextTryIndex = pIndex
-	for ; beforeIndex > 0 && lc.buffers[beforeIndex].Term == findFirstTerm; rNextTryIndex-- {
+	for ; beforeIndex > 1 && lc.buffers[beforeIndex].Term == findFirstTerm; rNextTryIndex-- {
 		beforeIndex--
 	}
 	return
 }
-func (lc *raftLogs) commit(pCommitIndex int) error {
-	if pCommitIndex <= lc.commitIndex {
+func (lc *raftLogs) commit(pCommitIndex, pNewestLogIndex int) error {
+	if pCommitIndex <= lc.commitIndex || pNewestLogIndex <= lc.commitIndex {
 		return nil
 	}
 	endIndex := pCommitIndex + 1
-	if pCommitIndex >= len(lc.buffers) {
-		endIndex = len(lc.buffers)
+	if pCommitIndex >= pNewestLogIndex {
+		endIndex = pNewestLogIndex + 1
 	}
+	/*if endIndex > len(lc.buffers) {
+		endIndex = len(lc.buffers)
+	}*/
 	for key, value := range lc.buffers[lc.commitIndex+1 : endIndex] {
 		lc.applyCh <- ApplyMsg{CommandValid: true, Command: value.Command, CommandIndex: lc.commitIndex + 1 + key}
 	}
@@ -144,5 +150,14 @@ func (lc *raftLogs) commit(pCommitIndex int) error {
 func (lc *raftLogs) back() (rBackIndex int, rBackTerm int) {
 	rBackIndex = len(lc.buffers) - 1
 	rBackTerm = lc.buffers[rBackIndex].Term
+	return
+}
+
+func (lc *raftLogs) getTerm(pIndex int) (rTerm int, rErr error) {
+	if pIndex < 0 || pIndex >= len(lc.buffers) {
+		rErr = ErrParamError
+		return
+	}
+	rTerm = lc.buffers[pIndex].Term
 	return
 }
