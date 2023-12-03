@@ -8,11 +8,16 @@ package shardkv
 // talks to the group that holds the key's shard.
 //
 
-import "6.5840/labrpc"
-import "crypto/rand"
-import "math/big"
-import "6.5840/shardctrler"
-import "time"
+import (
+	"crypto/rand"
+	"math/big"
+	"sync"
+	"time"
+
+	"6.5840/labrpc"
+	"6.5840/shardctrler"
+	"6.5840/util"
+)
 
 // which shard is a key in?
 // please use this function,
@@ -38,6 +43,12 @@ type Clerk struct {
 	config   shardctrler.Config
 	make_end func(string) *labrpc.ClientEnd
 	// You will have to modify this struct.
+	mu sync.Mutex
+	//lastLeader int
+	clientId int64
+	seq      int
+	//TODO 增加一个根据config，异步清理
+	gid2leader map[int]int
 }
 
 // the tester calls MakeClerk.
@@ -51,7 +62,13 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 	ck := new(Clerk)
 	ck.sm = shardctrler.MakeClerk(ctrlers)
 	ck.make_end = make_end
+	ck.gid2leader = make(map[int]int)
 	// You'll have to add code here.
+	ck.config = ck.sm.Query(-1)
+
+	ck.clientId = time.Now().UnixNano()
+	//ck.lastLeader = rand.Int() % len(servers)
+
 	return ck
 }
 
@@ -60,58 +77,99 @@ func MakeClerk(ctrlers []*labrpc.ClientEnd, make_end func(string) *labrpc.Client
 // keeps trying forever in the face of all other errors.
 // You will have to modify this function.
 func (ck *Clerk) Get(key string) string {
-	args := GetArgs{}
-	args.Key = key
-
+	ck.mu.Lock()
+	//tmpLeader := ck.lastLeader
+	args := GetArgs{Key: key, Sequence: UniqSeq{ClientId: ck.clientId, Seq: ck.seq}}
+	ck.seq++
+	ck.mu.Unlock()
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
-			// try each server for the shard.
-			for si := 0; si < len(servers); si++ {
-				srv := ck.make_end(servers[si])
+			ck.mu.Lock()
+			leader := ck.gid2leader[gid]
+			ck.mu.Unlock()
+			faileTime := 0
+			for {
+				srv := ck.make_end(servers[leader])
 				var reply GetReply
 				ok := srv.Call("ShardKV.Get", &args, &reply)
-				if ok && (reply.Err == OK || reply.Err == ErrNoKey) {
-					return reply.Value
+				util.Debug(util.DebugClient, 0, "Get Args[%v] shardid[%v] Reply[%v] ok[%v] config[%v] servers[%v] leader[%v]", args, shard, reply, ok, ck.config, servers, leader)
+				if ok {
+					faileTime = 0
+					if reply.Err == OK || reply.Err == ErrNoKey {
+						return reply.Value
+					}
+					if reply.Err == ErrWrongGroup {
+						break
+					}
+					if reply.Err == ErrTryAgainLater {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+				} else {
+					faileTime++
+					if faileTime == len(servers) {
+						break
+					}
 				}
-				if ok && (reply.Err == ErrWrongGroup) {
-					break
-				}
-				// ... not ok, or ErrWrongLeader
+				leader = (leader + 1) % len(servers)
+				ck.mu.Lock()
+				ck.gid2leader[gid] = leader
+				ck.mu.Unlock()
 			}
+			// try each server for the shard.
 		}
 		time.Sleep(100 * time.Millisecond)
 		// ask controler for the latest configuration.
 		ck.config = ck.sm.Query(-1)
 	}
-
 	return ""
 }
 
 // shared by Put and Append.
 // You will have to modify this function.
 func (ck *Clerk) PutAppend(key string, value string, op string) {
-	args := PutAppendArgs{}
-	args.Key = key
-	args.Value = value
-	args.Op = op
-
-
+	ck.mu.Lock()
+	//tmpLeader := ck.lastLeader
+	args := PutAppendArgs{Key: key, Value: value, Op: op, Sequence: UniqSeq{ClientId: ck.clientId, Seq: ck.seq}}
+	ck.seq++
+	ck.mu.Unlock()
 	for {
 		shard := key2shard(key)
 		gid := ck.config.Shards[shard]
 		if servers, ok := ck.config.Groups[gid]; ok {
-			for si := 0; si < len(servers); si++ {
-				srv := ck.make_end(servers[si])
+			ck.mu.Lock()
+			leader := ck.gid2leader[gid]
+			ck.mu.Unlock()
+			faileTime := 0
+			for {
+				srv := ck.make_end(servers[leader])
 				var reply PutAppendReply
 				ok := srv.Call("ShardKV.PutAppend", &args, &reply)
-				if ok && reply.Err == OK {
-					return
+				util.Debug(util.DebugClient, 0, "%v Args[%v] shardid[%v] Reply[%v] ok[%v] servers[%v]", op, args, shard, reply, ok, servers)
+				if ok {
+					faileTime = 0
+					if reply.Err == OK {
+						return
+					}
+					if reply.Err == ErrWrongGroup {
+						break
+					}
+					if reply.Err == ErrTryAgainLater {
+						time.Sleep(100 * time.Millisecond)
+						continue
+					}
+				} else {
+					faileTime++
+					if faileTime == len(servers) {
+						break
+					}
 				}
-				if ok && reply.Err == ErrWrongGroup {
-					break
-				}
+				leader = (leader + 1) % len(servers)
+				ck.mu.Lock()
+				ck.gid2leader[gid] = leader
+				ck.mu.Unlock()
 				// ... not ok, or ErrWrongLeader
 			}
 		}

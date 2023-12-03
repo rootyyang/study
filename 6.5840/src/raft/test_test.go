@@ -537,28 +537,28 @@ func TestBackup2B(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		cfg.rafts[leader2].Start(rand.Int())
 	}
-	/*
-		time.Sleep(RaftElectionTimeout / 2)
 
-		// bring original leader back to life,
-		for i := 0; i < servers; i++ {
-			cfg.disconnect(i)
-		}
-		cfg.connect((leader1 + 0) % servers)
-		cfg.connect((leader1 + 1) % servers)
-		cfg.connect(other)
+	time.Sleep(RaftElectionTimeout / 2)
 
-		// lots of successful commands to new group.
-		for i := 0; i < 50; i++ {
-			cfg.one(rand.Int(), 3, true)
-		}
+	// bring original leader back to life,
+	for i := 0; i < servers; i++ {
+		cfg.disconnect(i)
+	}
+	cfg.connect((leader1 + 0) % servers)
+	cfg.connect((leader1 + 1) % servers)
+	cfg.connect(other)
 
-			// now everyone
-			for i := 0; i < servers; i++ {
-				cfg.connect(i)
-			}
-			cfg.one(rand.Int(), servers, true)
-	*/
+	// lots of successful commands to new group.
+	for i := 0; i < 50; i++ {
+		cfg.one(rand.Int(), 3, true)
+	}
+
+	// now everyone
+	for i := 0; i < servers; i++ {
+		cfg.connect(i)
+	}
+	cfg.one(rand.Int(), servers, true)
+
 	cfg.end()
 }
 
@@ -936,9 +936,7 @@ func TestFigure8Unreliable2C(t *testing.T) {
 			cfg.connect(i)
 		}
 	}
-
 	cfg.one(rand.Int()%10000, servers, true)
-
 	cfg.end()
 }
 
@@ -1002,7 +1000,6 @@ func internalChurn(t *testing.T, unreliable bool) {
 		}
 		ret = values
 	}
-
 	ncli := 3
 	cha := []chan []int{}
 	for i := 0; i < ncli; i++ {

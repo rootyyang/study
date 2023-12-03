@@ -195,7 +195,7 @@ func (cfg *config) ingestSnap(i int, snapshot []byte, index int) string {
 	var xlog []interface{}
 	if d.Decode(&lastIncludedIndex) != nil ||
 		d.Decode(&xlog) != nil {
-		log.Fatalf("snapshot decode error")
+		log.Fatalf("snapshot decode error [%v]", snapshot)
 		return "snapshot Decode() error"
 	}
 	if index != -1 && index != lastIncludedIndex {

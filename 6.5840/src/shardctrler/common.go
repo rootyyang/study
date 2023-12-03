@@ -26,16 +26,26 @@ type Config struct {
 	Num    int              // config number
 	Shards [NShards]int     // shard -> gid
 	Groups map[int][]string // gid -> servers[]
+
+	//ShardAllocate [NShards]bool
 }
 
 const (
-	OK = "OK"
+	OK             = "OK"
+	WrongLeaderErr = "Wrong Leader Err"
+	TimeOutErr     = "Time Out Err"
 )
 
 type Err string
 
+type UniqSeq struct {
+	ClientId int64
+	Seq      int
+}
+
 type JoinArgs struct {
-	Servers map[int][]string // new GID -> servers mappings
+	Servers  map[int][]string // new GID -> servers mappings
+	Sequence UniqSeq
 }
 
 type JoinReply struct {
@@ -44,7 +54,8 @@ type JoinReply struct {
 }
 
 type LeaveArgs struct {
-	GIDs []int
+	GIDs     []int
+	Sequence UniqSeq
 }
 
 type LeaveReply struct {
@@ -53,8 +64,9 @@ type LeaveReply struct {
 }
 
 type MoveArgs struct {
-	Shard int
-	GID   int
+	Shard    int
+	GID      int
+	Sequence UniqSeq
 }
 
 type MoveReply struct {
@@ -63,11 +75,24 @@ type MoveReply struct {
 }
 
 type QueryArgs struct {
-	Num int // desired config number
+	Num      int // desired config number
+	Sequence UniqSeq
 }
 
 type QueryReply struct {
 	WrongLeader bool
 	Err         Err
 	Config      Config
+}
+
+type AllocateShardArgs struct {
+	Sequence UniqSeq
+	Shards   []int
+	GID      int
+}
+
+type AllocateShardReply struct {
+	WrongLeader   bool
+	Err           Err
+	SuccessShards []int
 }

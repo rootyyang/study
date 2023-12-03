@@ -1,15 +1,18 @@
 package shardkv
 
-import "6.5840/porcupine"
-import "6.5840/models"
-import "testing"
-import "strconv"
-import "time"
-import "fmt"
-import "sync/atomic"
-import "sync"
-import "math/rand"
-import "io/ioutil"
+import (
+	"fmt"
+	"io/ioutil"
+	"math/rand"
+	"strconv"
+	"sync"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"6.5840/models"
+	"6.5840/porcupine"
+)
 
 const linearizabilityCheckTimeout = 1 * time.Second
 
@@ -134,9 +137,11 @@ func TestJoinLeave(t *testing.T) {
 
 	// allow time for shards to transfer.
 	time.Sleep(1 * time.Second)
+	fmt.Println("------END--------")
 
 	cfg.checklogs()
 	cfg.ShutdownGroup(0)
+	fmt.Println("------BEGIN CHECK--------")
 
 	for i := 0; i < n; i++ {
 		check(t, ck, ka[i], va[i])
@@ -342,19 +347,20 @@ func TestConcurrent1(t *testing.T) {
 	cfg.join(2)
 	time.Sleep(500 * time.Millisecond)
 	cfg.leave(0)
-
+	fmt.Println("----join(1,2) leave(0)-----")
 	cfg.ShutdownGroup(0)
 	time.Sleep(100 * time.Millisecond)
 	cfg.ShutdownGroup(1)
 	time.Sleep(100 * time.Millisecond)
 	cfg.ShutdownGroup(2)
-
+	fmt.Println("----shutdownGroup(all)-----")
 	cfg.leave(2)
 
 	time.Sleep(100 * time.Millisecond)
 	cfg.StartGroup(0)
 	cfg.StartGroup(1)
 	cfg.StartGroup(2)
+	fmt.Println("----StartGroup(all)-----")
 
 	time.Sleep(100 * time.Millisecond)
 	cfg.join(0)
